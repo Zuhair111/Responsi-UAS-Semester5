@@ -384,4 +384,89 @@ class PostService {
       return false;
     }
   }
+
+  // Listen to real-time post changes (inserts)
+  RealtimeChannel subscribeToNewPosts(
+    void Function(Map<String, dynamic>) onNewPost,
+  ) {
+    final channel = _client
+        .channel('posts:public')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'posts',
+          callback: (payload) async {
+            print('📮 New post detected: ${payload.newRecord['id']}');
+            
+            // Fetch complete post data with profile information
+            try {
+              final postData = await _client
+                  .from('posts')
+                  .select('''
+                    *,
+                    profiles:user_id (
+                      id,
+                      username,
+                      name,
+                      avatar_url
+                    )
+                  ''')
+                  .eq('id', payload.newRecord['id'])
+                  .single();
+              
+              onNewPost(postData);
+            } catch (e) {
+              print('❌ Error fetching new post details: $e');
+            }
+          },
+        )
+        .subscribe();
+
+    return channel;
+  }
+
+  // Listen to real-time post updates (likes, comments count)
+  RealtimeChannel subscribeToPostUpdates(
+    void Function(Map<String, dynamic>) onPostUpdate,
+  ) {
+    final channel = _client
+        .channel('posts:updates')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'posts',
+          callback: (payload) {
+            print('📝 Post updated: ${payload.newRecord['id']}');
+            onPostUpdate(payload.newRecord);
+          },
+        )
+        .subscribe();
+
+    return channel;
+  }
+
+  // Listen to real-time post deletions
+  RealtimeChannel subscribeToPostDeletions(
+    void Function(String postId) onPostDelete,
+  ) {
+    final channel = _client
+        .channel('posts:deletions')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.delete,
+          schema: 'public',
+          table: 'posts',
+          callback: (payload) {
+            print('🗑️ Post deleted: ${payload.oldRecord['id']}');
+            onPostDelete(payload.oldRecord['id']);
+          },
+        )
+        .subscribe();
+
+    return channel;
+  }
+
+  // Unsubscribe from channel
+  Future<void> unsubscribeFromChannel(RealtimeChannel channel) async {
+    await _client.removeChannel(channel);
+  }
 }

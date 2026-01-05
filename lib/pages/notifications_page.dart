@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:responsi/services/notification_service.dart';
 import 'package:responsi/services/auth_service.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'user_profile_page.dart';
 import 'comments_page.dart';
 import 'chat_page.dart';
@@ -16,11 +17,59 @@ class _NotificationsPageState extends State<NotificationsPage> {
   final AuthService _authService = AuthService();
   List<Map<String, dynamic>> _notifications = [];
   bool _isLoading = true;
+  RealtimeChannel? _notificationsChannel;
 
   @override
   void initState() {
     super.initState();
     _loadNotifications();
+    _setupRealtimeSubscription();
+  }
+
+  @override
+  void dispose() {
+    _cleanupSubscription();
+    super.dispose();
+  }
+
+  void _setupRealtimeSubscription() {
+    final currentUser = _authService.currentUser;
+    if (currentUser == null) return;
+
+    _notificationsChannel = _notificationService.subscribeToNotifications(
+      currentUser.id,
+      (newNotification) async {
+        if (mounted) {
+          // Fetch full notification data with relationships
+          final notifications = await _notificationService.getNotifications(limit: 1);
+          if (notifications.isNotEmpty) {
+            setState(() {
+              // Add to the beginning of the list
+              _notifications.insert(0, notifications.first);
+            });
+
+            // Show a subtle notification
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('🔔 New notification received'),
+                duration: Duration(seconds: 2),
+                backgroundColor: Colors.orange,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        }
+      },
+    );
+
+    print('✅ Real-time notifications subscription setup');
+  }
+
+  Future<void> _cleanupSubscription() async {
+    if (_notificationsChannel != null) {
+      await _notificationService.unsubscribeFromNotifications(_notificationsChannel!);
+      print('✅ Real-time notifications subscription cleaned up');
+    }
   }
 
   Future<void> _loadNotifications() async {

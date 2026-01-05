@@ -8,6 +8,7 @@ import 'package:responsi/services/story_service.dart';
 import 'package:responsi/models/post_model.dart';
 import 'package:responsi/models/story_model.dart';
 import 'package:responsi/widgets/post_card.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'search_page.dart';
 import 'story_view_page.dart';
 import 'reels_page.dart';
@@ -44,6 +45,12 @@ class _HomePageState extends State<HomePage> {
   List<StoryModel> _myStories = [];
   bool _isLoadingStories = true;
 
+  // Real-time subscription channels
+  RealtimeChannel? _postsChannel;
+  RealtimeChannel? _postsUpdatesChannel;
+  RealtimeChannel? _postsDeletionsChannel;
+  RealtimeChannel? _notificationsChannel;
+
   final List<Color> _themeColors = [
     Colors.orange,
     Colors.blue,
@@ -70,6 +77,135 @@ class _HomePageState extends State<HomePage> {
     _loadPosts();
     _loadUnreadCount();
     _loadStories();
+    _setupRealtimeSubscriptions();
+  }
+
+  @override
+  void dispose() {
+    _cleanupSubscriptions();
+    super.dispose();
+  }
+
+  void _setupRealtimeSubscriptions() {
+    final currentUser = _authService.currentUser;
+    if (currentUser == null) return;
+
+    // Subscribe to new posts
+    _postsChannel = _postService.subscribeToNewPosts((newPostData) {
+      if (mounted) {
+        setState(() {
+          // Add new post to the beginning of the list
+          final newPost = PostModel.fromMap(newPostData);
+          _posts.insert(0, newPost);
+        });
+        
+        // Show notification snackbar for new post
+        final username = newPostData['profiles']?['username'] ?? 'Someone';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('📮 New post from $username'),
+            duration: Duration(seconds: 2),
+            backgroundColor: _primaryColor,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    });
+
+    // Subscribe to post updates (likes, comments)
+    _postsUpdatesChannel = _postService.subscribeToPostUpdates((updatedPostData) {
+      if (mounted) {
+        setState(() {
+          final index = _posts.indexWhere((post) => post.id == updatedPostData['id']);
+          if (index != -1) {
+            // Update the post with new data
+            _posts[index] = PostModel.fromMap({
+              ..._posts[index].toMap(),
+              'like_count': updatedPostData['like_count'],
+              'comment_count': updatedPostData['comment_count'],
+            });
+          }
+        });
+      }
+    });
+
+    // Subscribe to post deletions
+    _postsDeletionsChannel = _postService.subscribeToPostDeletions((deletedPostId) {
+      if (mounted) {
+        setState(() {
+          _posts.removeWhere((post) => post.id == deletedPostId);
+        });
+      }
+    });
+
+    // Subscribe to notifications
+    _notificationsChannel = _notificationService.subscribeToNotifications(
+      currentUser.id,
+      (newNotification) {
+        if (mounted) {
+          setState(() {
+            _unreadNotificationCount++;
+          });
+          
+          // Show notification badge or snackbar
+          final type = newNotification['type'] ?? 'notification';
+          String message = '🔔 New notification';
+          
+          switch (type) {
+            case 'follow':
+              message = '👥 Someone started following you';
+              break;
+            case 'like':
+              message = '❤️ Someone liked your post';
+              break;
+            case 'comment':
+              message = '💬 New comment on your post';
+              break;
+            case 'message':
+              message = '✉️ New message received';
+              break;
+          }
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(message),
+              duration: Duration(seconds: 3),
+              backgroundColor: _primaryColor,
+              behavior: SnackBarBehavior.floating,
+              action: SnackBarAction(
+                label: 'View',
+                textColor: Colors.white,
+                onPressed: () {
+                  setState(() => _selectedIndex = 0);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => NotificationsPage()),
+                  );
+                },
+              ),
+            ),
+          );
+        }
+      },
+    );
+
+    print('✅ Real-time subscriptions setup completed');
+  }
+
+  Future<void> _cleanupSubscriptions() async {
+    if (_postsChannel != null) {
+      await _postService.unsubscribeFromChannel(_postsChannel!);
+    }
+    if (_postsUpdatesChannel != null) {
+      await _postService.unsubscribeFromChannel(_postsUpdatesChannel!);
+    }
+    if (_postsDeletionsChannel != null) {
+      await _postService.unsubscribeFromChannel(_postsDeletionsChannel!);
+    }
+    if (_notificationsChannel != null) {
+      await _notificationService.unsubscribeFromNotifications(_notificationsChannel!);
+    }
+    print('✅ Real-time subscriptions cleaned up');
   }
 
   Future<void> _loadStories() async {

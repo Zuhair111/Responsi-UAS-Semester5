@@ -41,6 +41,23 @@ class PostModel {
     );
   }
 
+  factory PostModel.fromMap(Map<String, dynamic> map) {
+    final profile = map['profiles'] as Map<String, dynamic>?;
+    return PostModel(
+      id: map['id'].toString(),
+      userId: map['user_id'] ?? '',
+      content: map['content'] ?? '',
+      imageUrl: map['image_url'],
+      privacy: map['privacy'] ?? 'public',
+      location: map['location'],
+      likesCount: map['like_count'] ?? map['likes_count'] ?? 0,
+      commentsCount: map['comment_count'] ?? map['comments_count'] ?? 0,
+      createdAt: DateTime.parse(map['created_at']),
+      userName: profile?['name'] ?? profile?['username'] ?? 'Unknown User',
+      userAvatarUrl: profile?['avatar_url'],
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -52,6 +69,24 @@ class PostModel {
       'likes_count': likesCount,
       'comments_count': commentsCount,
       'created_at': createdAt.toIso8601String(),
+    };
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'user_id': userId,
+      'content': content,
+      'image_url': imageUrl,
+      'privacy': privacy,
+      'location': location,
+      'like_count': likesCount,
+      'comment_count': commentsCount,
+      'created_at': createdAt.toIso8601String(),
+      'profiles': {
+        'name': userName,
+        'avatar_url': userAvatarUrl,
+      },
     };
   }
 
