@@ -47,6 +47,25 @@ class ReelModel {
     );
   }
 
+  factory ReelModel.fromMap(Map<String, dynamic> map) {
+    final profile = map['profiles'] as Map<String, dynamic>?;
+    return ReelModel(
+      id: map['id'].toString(),
+      userId: map['user_id'] ?? '',
+      videoUrl: map['video_url'] ?? '',
+      thumbnailUrl: map['thumbnail_url'],
+      caption: map['caption'],
+      duration: map['duration'] ?? 0,
+      likesCount: map['likes_count'] ?? 0,
+      commentsCount: map['comments_count'] ?? 0,
+      viewsCount: map['views_count'] ?? 0,
+      createdAt: DateTime.parse(map['created_at']),
+      userName: profile?['name'] ?? profile?['username'] ?? 'Unknown User',
+      userAvatarUrl: profile?['avatar_url'],
+      isLiked: map['is_liked'],
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,

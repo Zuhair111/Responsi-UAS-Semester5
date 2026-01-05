@@ -455,4 +455,89 @@ class ReelService {
       return false;
     }
   }
+
+  // Listen to real-time new reels
+  RealtimeChannel subscribeToNewReels(
+    void Function(Map<String, dynamic>) onNewReel,
+  ) {
+    final channel = _supabase
+        .channel('reels:public')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'reels',
+          callback: (payload) async {
+            print('🎥 New reel detected: ${payload.newRecord['id']}');
+            
+            // Fetch complete reel data with profile information
+            try {
+              final reelData = await _supabase
+                  .from('reels')
+                  .select('''
+                    *,
+                    profiles:user_id (
+                      id,
+                      username,
+                      name,
+                      avatar_url
+                    )
+                  ''')
+                  .eq('id', payload.newRecord['id'])
+                  .single();
+              
+              onNewReel(reelData);
+            } catch (e) {
+              print('❌ Error fetching new reel details: $e');
+            }
+          },
+        )
+        .subscribe();
+
+    return channel;
+  }
+
+  // Listen to real-time reel updates (likes count)
+  RealtimeChannel subscribeToReelUpdates(
+    void Function(Map<String, dynamic>) onReelUpdate,
+  ) {
+    final channel = _supabase
+        .channel('reels:updates')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'reels',
+          callback: (payload) {
+            print('📝 Reel updated: ${payload.newRecord['id']}');
+            onReelUpdate(payload.newRecord);
+          },
+        )
+        .subscribe();
+
+    return channel;
+  }
+
+  // Listen to real-time reel deletions
+  RealtimeChannel subscribeToReelDeletions(
+    void Function(String reelId) onReelDelete,
+  ) {
+    final channel = _supabase
+        .channel('reels:deletions')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.delete,
+          schema: 'public',
+          table: 'reels',
+          callback: (payload) {
+            print('🗑️ Reel deleted: ${payload.oldRecord['id']}');
+            onReelDelete(payload.oldRecord['id']);
+          },
+        )
+        .subscribe();
+
+    return channel;
+  }
+
+  // Unsubscribe from channel
+  Future<void> unsubscribeFromChannel(RealtimeChannel channel) async {
+    await _supabase.removeChannel(channel);
+  }
 }

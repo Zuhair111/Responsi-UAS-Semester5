@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../widgets/reel_item.dart';
 import '../services/reel_service.dart';
 import '../models/reel_model.dart';
@@ -16,10 +17,80 @@ class _ReelsPageState extends State<ReelsPage> {
   List<ReelModel> _reels = [];
   bool _isLoading = true;
 
+  // Real-time subscription channels
+  RealtimeChannel? _reelsChannel;
+  RealtimeChannel? _reelsUpdatesChannel;
+  RealtimeChannel? _reelsDeletionsChannel;
+
   @override
   void initState() {
     super.initState();
     _loadReels();
+    _setupRealtimeSubscriptions();
+  }
+
+  void _setupRealtimeSubscriptions() {
+    // Subscribe to new reels
+    _reelsChannel = _reelService.subscribeToNewReels((newReelData) {
+      if (mounted) {
+        setState(() {
+          // Add new reel to the beginning of the list
+          final newReel = ReelModel.fromMap(newReelData);
+          _reels.insert(0, newReel);
+        });
+        
+        // Show notification snackbar for new reel
+        final username = newReelData['profiles']?['username'] ?? newReelData['profiles']?['name'] ?? 'Someone';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('🎥 New reel from $username'),
+            duration: Duration(seconds: 2),
+            backgroundColor: Color(0xFF4A3E9E),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    });
+
+    // Subscribe to reel updates (likes)
+    _reelsUpdatesChannel = _reelService.subscribeToReelUpdates((updatedReelData) {
+      if (mounted) {
+        setState(() {
+          final index = _reels.indexWhere((reel) => reel.id == updatedReelData['id']);
+          if (index != -1) {
+            // Update the reel with new likes count
+            _reels[index] = _reels[index].copyWith(
+              likesCount: updatedReelData['likes_count'] ?? _reels[index].likesCount,
+              commentsCount: updatedReelData['comments_count'] ?? _reels[index].commentsCount,
+            );
+          }
+        });
+      }
+    });
+
+    // Subscribe to reel deletions
+    _reelsDeletionsChannel = _reelService.subscribeToReelDeletions((deletedReelId) {
+      if (mounted) {
+        setState(() {
+          _reels.removeWhere((reel) => reel.id == deletedReelId);
+        });
+      }
+    });
+
+    print('✅ Real-time reels subscriptions setup completed');
+  }
+
+  Future<void> _cleanupSubscriptions() async {
+    if (_reelsChannel != null) {
+      await _reelService.unsubscribeFromChannel(_reelsChannel!);
+    }
+    if (_reelsUpdatesChannel != null) {
+      await _reelService.unsubscribeFromChannel(_reelsUpdatesChannel!);
+    }
+    if (_reelsDeletionsChannel != null) {
+      await _reelService.unsubscribeFromChannel(_reelsDeletionsChannel!);
+    }
+    print('✅ Real-time reels subscriptions cleaned up');
   }
 
   Future<void> _loadReels() async {
@@ -178,6 +249,7 @@ class _ReelsPageState extends State<ReelsPage> {
 
   @override
   void dispose() {
+    _cleanupSubscriptions();
     _pageController.dispose();
     super.dispose();
   }

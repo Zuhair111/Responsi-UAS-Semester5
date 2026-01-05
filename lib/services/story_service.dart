@@ -293,4 +293,74 @@ class StoryService {
   bool hasUnviewedStories(List<StoryModel> stories) {
     return stories.any((story) => !story.isViewed);
   }
+
+  // Listen to real-time new stories
+  RealtimeChannel subscribeToNewStories(
+    void Function(Map<String, dynamic>) onNewStory,
+  ) {
+    final channel = _supabase
+        .channel('stories:public')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'stories',
+          callback: (payload) async {
+            print('📸 New story detected: ${payload.newRecord['id']}');
+            
+            // Fetch complete story data with profile information
+            try {
+              final userId = payload.newRecord['user_id'];
+              
+              // Fetch story
+              final storyData = await _supabase
+                  .from('stories')
+                  .select('*')
+                  .eq('id', payload.newRecord['id'])
+                  .single();
+              
+              // Fetch profile separately
+              final profile = await _supabase
+                  .from('profiles')
+                  .select('id, username, name, avatar_url')
+                  .eq('id', userId)
+                  .single();
+              
+              // Combine data
+              storyData['profiles'] = profile;
+              
+              onNewStory(storyData);
+            } catch (e) {
+              print('❌ Error fetching new story details: $e');
+            }
+          },
+        )
+        .subscribe();
+
+    return channel;
+  }
+
+  // Listen to real-time story deletions
+  RealtimeChannel subscribeToStoryDeletions(
+    void Function(String storyId) onStoryDelete,
+  ) {
+    final channel = _supabase
+        .channel('stories:deletions')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.delete,
+          schema: 'public',
+          table: 'stories',
+          callback: (payload) {
+            print('🗑️ Story deleted: ${payload.oldRecord['id']}');
+            onStoryDelete(payload.oldRecord['id']);
+          },
+        )
+        .subscribe();
+
+    return channel;
+  }
+
+  // Unsubscribe from channel
+  Future<void> unsubscribeFromChannel(RealtimeChannel channel) async {
+    await _supabase.removeChannel(channel);
+  }
 }

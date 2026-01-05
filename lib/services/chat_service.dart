@@ -232,6 +232,56 @@ class ChatService {
         .subscribe();
   }
 
+  // Subscribe to all incoming messages for current user
+  RealtimeChannel subscribeToIncomingMessages(
+    String userId,
+    Function(Map<String, dynamic>) onNewMessage,
+  ) {
+    print('💬 Subscribing to all incoming messages for user: $userId');
+
+    return _supabase
+        .channel('messages:incoming:$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'messages',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'receiver_id',
+            value: userId,
+          ),
+          callback: (payload) async {
+            print('💬 New incoming message: ${payload.newRecord}');
+            
+            // Fetch sender profile information
+            try {
+              final senderId = payload.newRecord['sender_id'];
+              final profile = await _supabase
+                  .from('profiles')
+                  .select('id, username, name, avatar_url')
+                  .eq('id', senderId)
+                  .single();
+              
+              final enrichedMessage = {
+                ...payload.newRecord,
+                'sender': profile,
+              };
+              
+              onNewMessage(enrichedMessage);
+            } catch (e) {
+              print('❌ Error fetching sender profile: $e');
+              onNewMessage(payload.newRecord);
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  // Unsubscribe from channel
+  Future<void> unsubscribeFromChannel(RealtimeChannel channel) async {
+    await _supabase.removeChannel(channel);
+  }
+
   // Delete a message (sender only)
   Future<bool> deleteMessage(String messageId) async {
     try {

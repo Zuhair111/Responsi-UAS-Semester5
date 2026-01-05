@@ -5,9 +5,11 @@ import 'package:responsi/services/auth_service.dart';
 import 'package:responsi/services/post_service.dart';
 import 'package:responsi/services/notification_service.dart';
 import 'package:responsi/services/story_service.dart';
+import 'package:responsi/services/chat_service.dart';
 import 'package:responsi/models/post_model.dart';
 import 'package:responsi/models/story_model.dart';
 import 'package:responsi/widgets/post_card.dart';
+import 'package:responsi/widgets/message_notification_popup.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'search_page.dart';
 import 'story_view_page.dart';
@@ -32,6 +34,7 @@ class _HomePageState extends State<HomePage> {
   final PostService _postService = PostService();
   final NotificationService _notificationService = NotificationService();
   final StoryService _storyService = StoryService();
+  final ChatService _chatService = ChatService();
 
   int _selectedIndex = 0;
   bool _isDarkMode = false;
@@ -50,6 +53,9 @@ class _HomePageState extends State<HomePage> {
   RealtimeChannel? _postsUpdatesChannel;
   RealtimeChannel? _postsDeletionsChannel;
   RealtimeChannel? _notificationsChannel;
+  RealtimeChannel? _messagesChannel;
+  RealtimeChannel? _storiesChannel;
+  RealtimeChannel? _storiesDeletionsChannel;
 
   final List<Color> _themeColors = [
     Colors.orange,
@@ -189,6 +195,88 @@ class _HomePageState extends State<HomePage> {
       },
     );
 
+    // Subscribe to incoming messages
+    _messagesChannel = _chatService.subscribeToIncomingMessages(
+      currentUser.id,
+      (messageData) {
+        if (mounted) {
+          print('💬 New incoming message received!');
+          print('Message data: $messageData');
+          
+          final sender = messageData['sender'] as Map<String, dynamic>?;
+          final senderName = sender?['username'] ?? sender?['name'] ?? 'Someone';
+          final content = messageData['content'] as String? ?? '';
+          final messageType = messageData['message_type'] as String? ?? 'text';
+          final avatarUrl = sender?['avatar_url'];
+          
+          String displayContent = content;
+          
+          // Customize message display based on type
+          switch (messageType) {
+            case 'post':
+              displayContent = '📮 Shared a post with you';
+              break;
+            case 'story':
+              displayContent = '📸 Replied to your story';
+              break;
+            case 'text':
+            default:
+              // Keep full message for popup
+              displayContent = content;
+              break;
+          }
+          
+          // Show beautiful pop-up notification
+          MessageNotificationPopup.show(
+            context: context,
+            senderName: senderName,
+            message: displayContent,
+            avatarUrl: avatarUrl,
+            onTap: () {
+              print('🔔 Notification tapped, navigating to chat');
+              // Navigate to chat
+              setState(() => _selectedIndex = 2);
+            },
+            duration: Duration(seconds: 6),
+          );
+          
+          print('✅ Message notification popup shown');
+        }
+      },
+    );
+
+    // Subscribe to new stories
+    _storiesChannel = _storyService.subscribeToNewStories((newStoryData) {
+      if (mounted) {
+        print('📸 New story received!');
+        
+        // Reload stories to show new one
+        _loadStories();
+        
+        // Show notification snackbar
+        final profile = newStoryData['profiles'] as Map<String, dynamic>?;
+        final username = profile?['username'] ?? profile?['name'] ?? 'Someone';
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('📸 New story from $username'),
+            duration: Duration(seconds: 2),
+            backgroundColor: Colors.purple,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    });
+
+    // Subscribe to story deletions
+    _storiesDeletionsChannel = _storyService.subscribeToStoryDeletions((deletedStoryId) {
+      if (mounted) {
+        print('🗑️ Story deleted: $deletedStoryId');
+        // Reload stories
+        _loadStories();
+      }
+    });
+
     print('✅ Real-time subscriptions setup completed');
   }
 
@@ -204,6 +292,15 @@ class _HomePageState extends State<HomePage> {
     }
     if (_notificationsChannel != null) {
       await _notificationService.unsubscribeFromNotifications(_notificationsChannel!);
+    }
+    if (_messagesChannel != null) {
+      await _chatService.unsubscribeFromChannel(_messagesChannel!);
+    }
+    if (_storiesChannel != null) {
+      await _storyService.unsubscribeFromChannel(_storiesChannel!);
+    }
+    if (_storiesDeletionsChannel != null) {
+      await _storyService.unsubscribeFromChannel(_storiesDeletionsChannel!);
     }
     print('✅ Real-time subscriptions cleaned up');
   }
